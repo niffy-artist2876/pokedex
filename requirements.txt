@@ -1,0 +1,6 @@
+psycopg[binary]>=3.1
+pandas>=2.0
+python-dotenv>=1.0
+bcrypt>=4.0
+# only needed for --embed
+sentence-transformers>=2.2
