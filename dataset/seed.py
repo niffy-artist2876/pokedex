@@ -5,12 +5,15 @@ Loads reference data only (types, matchups, species, abilities, moves, learnsets
 items, natures). User-owned tables (trainer, competitive_team, members, moves)
 are left alone, except for an optional bootstrap admin + default format.
 
+Run database/setup_db.py first (or pass --seed to it): this script fills
+columns added by the migrations in database/migrations/.
+
 Usage:
     python seed.py                          # seed for Scarlet/Violet
     python seed.py --version-group champions
     python seed.py --embed                  # also fill pgvector description embeddings
 
-Environment (.env):
+Environment (.env in the repository root):
     DATABASE_URL=postgresql://user:pass@localhost:5432/pokedex
     ADMIN_USERNAME=... ADMIN_EMAIL=... ADMIN_PASSWORD=...   (optional bootstrap admin)
 
@@ -33,7 +36,8 @@ CSV_BASE = "https://raw.githubusercontent.com/PokeAPI/pokeapi/master/data/v2/csv
 ENGLISH = 9
 CSV_FILES = [
     "types", "type_names", "type_efficacy",
-    "pokemon", "pokemon_species_names", "pokemon_stats", "pokemon_types",
+    "pokemon", "pokemon_species", "pokemon_species_names", "pokemon_stats", "pokemon_types",
+    "pokemon_evolution", "evolution_triggers",
     "abilities", "ability_names", "ability_flavor_text", "ability_prose", "pokemon_abilities",
     "moves", "move_names", "move_flavor_text", "move_effect_prose", "pokemon_moves",
     "items", "item_names", "item_flavor_text", "item_prose",
@@ -134,12 +138,30 @@ def build(frames: dict[str, pd.DataFrame], vg_identifier: str) -> dict[str, list
     included_pokemon = {p for p, s in poke_to_species.items() if s in species_ids}
 
     species_name = english_names(frames["pokemon_species_names"], "pokemon_species_id")
+    sp = frames["pokemon_species"].set_index("id")
     st = frames["pokemon_stats"]
     st = st[st.pokemon_id.isin(included_pokemon)].pivot(index="pokemon_id", columns="stat_id", values="base_stat")
-    species = [
-        (int(poke_to_species[p]), species_name[poke_to_species[p]], *(int(row[s]) for s in range(1, 7)))
-        for p, row in st.iterrows()
-    ]
+    species = []
+    for p, row in st.iterrows():
+        s = poke_to_species[p]
+        species.append((int(s), species_name[s], *(int(row[k]) for k in range(1, 7)),
+                        int(sp.at[s, "generation_id"]), bool(sp.at[s, "is_legendary"]), bool(sp.at[s, "is_mythical"])))
+
+    # Evolutions: only links where both species are in the game. A species can
+    # have several evolution methods; keep PokeAPI's default (else the first).
+    trigger_name = dict(zip(frames["evolution_triggers"].id, frames["evolution_triggers"].identifier))
+    ev = frames["pokemon_evolution"].sort_values(["is_default", "id"], ascending=[False, True])
+    ev = ev.drop_duplicates("evolved_species_id").set_index("evolved_species_id")
+    evolutions = []
+    for s in sorted(species_ids):
+        prevo = sp.at[s, "evolves_from_species_id"]
+        if pd.isna(prevo) or int(prevo) not in species_ids:
+            continue
+        method, level = None, None
+        if s in ev.index:
+            method = trigger_name.get(ev.at[s, "evolution_trigger_id"])
+            level = none_if_nan(ev.at[s, "minimum_level"])
+        evolutions.append((int(prevo), method, level, int(s)))
 
     pt = frames["pokemon_types"]
     pt = pt[pt.pokemon_id.isin(included_pokemon)]
@@ -206,7 +228,7 @@ def build(frames: dict[str, pd.DataFrame], vg_identifier: str) -> dict[str, list
                         None if neutral else STAT_NAMES[n.increased_stat_id],
                         None if neutral else STAT_NAMES[n.decreased_stat_id]))
 
-    return dict(types=types, matchups=matchups, species=species, species_types=species_types,
+    return dict(types=types, matchups=matchups, species=species, evolutions=evolutions, species_types=species_types,
                 abilities=abilities, species_abilities=species_abilities, moves=moves,
                 learnsets=learnsets, items=items, natures=natures)
 
@@ -225,6 +247,13 @@ def upsert(cur, table, cols, rows, key_cols, update=True):
     print(f"  {table:<28} {len(rows):>6} rows")
 
 
+def require_migrations(conn):
+    row = conn.execute("""SELECT count(*) FROM information_schema.columns
+                          WHERE table_name = 'pokemon_species' AND column_name = 'evolves_from_species_id'""").fetchone()
+    if row[0] == 0:
+        sys.exit("The database is missing migrations; run: python database/setup_db.py")
+
+
 def seed(conn, data):
     with conn.transaction(), conn.cursor() as cur:
         upsert(cur, "elemental_type", ["elemental_type_identification_number", "type_name"],
@@ -234,8 +263,14 @@ def seed(conn, data):
                data["matchups"], ["attacking_type_identification_number", "defending_type_identification_number"])
         upsert(cur, "pokemon_species",
                ["species_national_pokedex_number", "species_name", "base_hit_points", "base_attack", "base_defense",
-                "base_special_attack", "base_special_defense", "base_speed"],
+                "base_special_attack", "base_special_defense", "base_speed",
+                "generation_number", "is_legendary", "is_mythical"],
                data["species"], ["species_national_pokedex_number"])
+        # second pass: evolves_from references pokemon_species itself
+        cur.executemany("""UPDATE pokemon_species
+                           SET evolves_from_species_id = %s, evolution_method = %s, evolution_minimum_level = %s
+                           WHERE species_national_pokedex_number = %s""", data["evolutions"])
+        print(f"  {'species evolution links':<28} {len(data['evolutions']):>6} rows")
         upsert(cur, "pokemon_elemental_types",
                ["species_national_pokedex_number", "elemental_type_identification_number", "type_slot_order"],
                data["species_types"], ["species_national_pokedex_number", "elemental_type_identification_number"])
@@ -271,10 +306,11 @@ def bootstrap_admin(conn, vg_identifier):
                     (username, email, pw_hash))
         cur.execute("SELECT trainer_identification_number FROM trainer WHERE account_username = %s", (username,))
         admin_id = cur.fetchone()[0]
-        cur.execute("""INSERT INTO battle_format (format_name, level_cap, ruleset_description, managed_by_trainer_id)
-                       VALUES (%s, %s, %s, %s) ON CONFLICT (format_name) DO NOTHING""",
+        cur.execute("""INSERT INTO battle_format (format_name, level_cap, ruleset_description, managed_by_trainer_id,
+                                                  minimum_team_size, maximum_legendary_members)
+                       VALUES (%s, %s, %s, %s, 4, 1) ON CONFLICT (format_name) DO NOTHING""",
                     (f"VGC Doubles ({vg_identifier})", DEFAULT_LEVEL_CAP,
-                     "Doubles, bring 6 pick 4, species clause, item clause, level 50.", admin_id))
+                     "Doubles, bring 6 pick 4, species clause, item clause, level 50, one legendary.", admin_id))
     print(f"  admin '{username}' and default format ready")
 
 
@@ -315,7 +351,7 @@ def main():
     parser.add_argument("--model", default=EMBED_MODEL)
     args = parser.parse_args()
 
-    load_dotenv()
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
     url = os.getenv("DATABASE_URL")
     if not url:
         sys.exit("DATABASE_URL is not set (put it in .env)")
@@ -324,6 +360,7 @@ def main():
     data = build(fetch_csvs(args.cache_dir, args.refresh), args.version_group)
 
     with psycopg.connect(url) as conn:
+        require_migrations(conn)
         print("Seeding reference tables (single transaction)")
         seed(conn, data)
         bootstrap_admin(conn, args.version_group)

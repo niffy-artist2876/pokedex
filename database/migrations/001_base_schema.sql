@@ -1,5 +1,5 @@
 
--- psql -U postgres -d pokedex -v ON_ERROR_STOP=1 -f schema_novector.sql
+-- psql -U postgres -d pokedex -v ON_ERROR_STOP=1 -f 001_base_schema.sql   (normally applied by database/setup_db.py)
 
 
 CREATE TABLE trainer (
