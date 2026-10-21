@@ -285,6 +285,13 @@ def get_encoder(model_name):
 
 
 def embed_descriptions(conn, model_name):
+    with conn.cursor() as cur:
+        cur.execute("""SELECT count(*) FROM information_schema.columns
+                       WHERE table_name IN ('combat_move', 'special_ability')
+                         AND column_name = 'description_embedding'""")
+        if cur.fetchone()[0] < 2:
+            sys.exit("--embed needs the pgvector schema (description_embedding columns); "
+                     "schema_novector.sql doesn't have them")
     encode = get_encoder(model_name)
     targets = [("combat_move", "move_identification_number", "move_name", "move_effect_description"),
                ("special_ability", "ability_identification_number", "ability_name", "ability_effect_description")]
@@ -302,7 +309,7 @@ def embed_descriptions(conn, model_name):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version-group", default="scarlet-violet", help="PokeAPI version group for learnsets")
-    parser.add_argument("--cache-dir", default=".pokeapi_cache", type=Path)
+    parser.add_argument("--cache-dir", default=Path(__file__).resolve().parent / ".pokeapi_cache", type=Path)
     parser.add_argument("--refresh", action="store_true", help="re-download CSVs")
     parser.add_argument("--embed", action="store_true", help="fill pgvector embeddings (needs sentence-transformers)")
     parser.add_argument("--model", default=EMBED_MODEL)

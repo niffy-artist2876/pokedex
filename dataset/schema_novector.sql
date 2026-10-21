@@ -1,5 +1,5 @@
 
--- psql -U postgres -d pokedex -v ON_ERROR_STOP=1 -f schema.sql
+-- psql -U postgres -d pokedex -v ON_ERROR_STOP=1 -f schema_novector.sql
 
 
 CREATE TABLE trainer (
@@ -175,3 +175,171 @@ CREATE INDEX idx_species_moves_move    ON species_learnable_moves (move_identifi
 CREATE INDEX idx_pokemon_types_type    ON pokemon_elemental_types (elemental_type_identification_number);
 CREATE INDEX idx_move_type             ON combat_move (elemental_type_identification_number);
 
+
+
+-- ---------------------------------------------------------------- business-rule triggers
+-- Rules that span tables and so can't be plain CHECK / FK constraints.
+
+-- Only admins may manage a battle format.
+CREATE FUNCTION enforce_format_manager_is_admin() RETURNS trigger AS $$
+BEGIN
+    IF NEW.managed_by_trainer_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM trainer
+        WHERE trainer_identification_number = NEW.managed_by_trainer_id
+          AND system_access_role = 'admin'
+    ) THEN
+        RAISE EXCEPTION 'trainer % is not an admin and cannot manage a battle format', NEW.managed_by_trainer_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_format_manager_is_admin
+    BEFORE INSERT OR UPDATE OF managed_by_trainer_id ON battle_format
+    FOR EACH ROW EXECUTE FUNCTION enforce_format_manager_is_admin();
+
+-- An admin who still manages formats can't be demoted.
+CREATE FUNCTION prevent_demoting_format_manager() RETURNS trigger AS $$
+BEGIN
+    IF NEW.system_access_role <> 'admin' AND EXISTS (
+        SELECT 1 FROM battle_format WHERE managed_by_trainer_id = NEW.trainer_identification_number
+    ) THEN
+        RAISE EXCEPTION 'trainer % still manages battle formats; reassign them before demoting', NEW.trainer_identification_number;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_prevent_demoting_format_manager
+    BEFORE UPDATE OF system_access_role ON trainer
+    FOR EACH ROW EXECUTE FUNCTION prevent_demoting_format_manager();
+
+-- Teams can only be created for (or moved to) an active format, and every
+-- existing member must satisfy the new format's level cap and ban list.
+CREATE FUNCTION enforce_team_format_rules() RETURNS trigger AS $$
+DECLARE
+    fmt battle_format%ROWTYPE;
+BEGIN
+    IF TG_OP = 'UPDATE' AND NEW.battle_format_id = OLD.battle_format_id THEN
+        RETURN NEW;
+    END IF;
+    SELECT * INTO fmt FROM battle_format WHERE format_identification_number = NEW.battle_format_id;
+    IF NOT fmt.is_active THEN
+        RAISE EXCEPTION 'battle format "%" is not active', fmt.format_name;
+    END IF;
+    IF TG_OP = 'UPDATE' THEN
+        IF EXISTS (SELECT 1 FROM individual_team_member
+                   WHERE belongs_to_team_id = NEW.team_identification_number
+                     AND experience_level > fmt.level_cap) THEN
+            RAISE EXCEPTION 'team has members above the level cap (%) of "%"', fmt.level_cap, fmt.format_name;
+        END IF;
+        IF EXISTS (SELECT 1 FROM individual_team_member m
+                   JOIN format_banned_species b
+                     ON b.species_national_pokedex_number = m.base_species_id
+                    AND b.format_identification_number = fmt.format_identification_number
+                   WHERE m.belongs_to_team_id = NEW.team_identification_number) THEN
+            RAISE EXCEPTION 'team contains species banned in "%"', fmt.format_name;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_team_format_rules
+    BEFORE INSERT OR UPDATE OF battle_format_id ON competitive_team
+    FOR EACH ROW EXECUTE FUNCTION enforce_team_format_rules();
+
+-- A member must respect its team's format (level cap, banned species), and if
+-- its species changes, every move it already knows must still be learnable.
+CREATE FUNCTION enforce_member_rules() RETURNS trigger AS $$
+DECLARE
+    fmt battle_format%ROWTYPE;
+BEGIN
+    SELECT f.* INTO fmt
+    FROM competitive_team t
+    JOIN battle_format f ON f.format_identification_number = t.battle_format_id
+    WHERE t.team_identification_number = NEW.belongs_to_team_id;
+
+    IF NEW.experience_level > fmt.level_cap THEN
+        RAISE EXCEPTION 'level % exceeds the level cap (%) of "%"', NEW.experience_level, fmt.level_cap, fmt.format_name;
+    END IF;
+    IF EXISTS (SELECT 1 FROM format_banned_species
+               WHERE format_identification_number = fmt.format_identification_number
+                 AND species_national_pokedex_number = NEW.base_species_id) THEN
+        RAISE EXCEPTION 'species % is banned in "%"', NEW.base_species_id, fmt.format_name;
+    END IF;
+    IF TG_OP = 'UPDATE' AND NEW.base_species_id <> OLD.base_species_id AND EXISTS (
+        SELECT 1 FROM member_equipped_moves e
+        WHERE e.member_identification_number = NEW.member_identification_number
+          AND NOT EXISTS (SELECT 1 FROM species_learnable_moves l
+                          WHERE l.species_national_pokedex_number = NEW.base_species_id
+                            AND l.move_identification_number = e.move_identification_number)
+    ) THEN
+        RAISE EXCEPTION 'species % cannot learn all of this member''s equipped moves', NEW.base_species_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_member_rules
+    BEFORE INSERT OR UPDATE ON individual_team_member
+    FOR EACH ROW EXECUTE FUNCTION enforce_member_rules();
+
+-- A member can only equip moves its species can learn.
+CREATE FUNCTION enforce_learnable_move() RETURNS trigger AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM individual_team_member m
+        JOIN species_learnable_moves l
+          ON l.species_national_pokedex_number = m.base_species_id
+         AND l.move_identification_number = NEW.move_identification_number
+        WHERE m.member_identification_number = NEW.member_identification_number
+    ) THEN
+        RAISE EXCEPTION 'move % is not learnable by this member''s species', NEW.move_identification_number;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_learnable_move
+    BEFORE INSERT OR UPDATE ON member_equipped_moves
+    FOR EACH ROW EXECUTE FUNCTION enforce_learnable_move();
+
+-- Keep competitive_team.last_modified_timestamp current, including when its
+-- members or their moves change.
+CREATE FUNCTION touch_team_on_update() RETURNS trigger AS $$
+BEGIN
+    NEW.last_modified_timestamp := now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_team_touch
+    BEFORE UPDATE ON competitive_team
+    FOR EACH ROW EXECUTE FUNCTION touch_team_on_update();
+
+CREATE FUNCTION touch_team_from_member() RETURNS trigger AS $$
+BEGIN
+    UPDATE competitive_team SET last_modified_timestamp = now()
+    WHERE team_identification_number IN (OLD.belongs_to_team_id, NEW.belongs_to_team_id);
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_member_touch_team
+    AFTER INSERT OR UPDATE OR DELETE ON individual_team_member
+    FOR EACH ROW EXECUTE FUNCTION touch_team_from_member();
+
+CREATE FUNCTION touch_team_from_move() RETURNS trigger AS $$
+BEGIN
+    UPDATE competitive_team SET last_modified_timestamp = now()
+    WHERE team_identification_number IN (
+        SELECT belongs_to_team_id FROM individual_team_member
+        WHERE member_identification_number IN (OLD.member_identification_number, NEW.member_identification_number));
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_move_touch_team
+    AFTER INSERT OR UPDATE OR DELETE ON member_equipped_moves
+    FOR EACH ROW EXECUTE FUNCTION touch_team_from_move();
