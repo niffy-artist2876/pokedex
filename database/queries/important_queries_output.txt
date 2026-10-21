@@ -1,0 +1,322 @@
+== Q1  Multi-table JOIN: species card (types, stats, abilities) ==
+ species_name |     types     | hp  | atk | def | spa | spd | spe |           abilities           
+--------------+---------------+-----+-----+-----+-----+-----+-----+-------------------------------
+ Amoonguss    | Grass/Poison  | 114 |  85 |  70 |  85 |  80 |  30 | Effect Spore, Regenerator (H)
+ Garchomp     | Dragon/Ground | 108 | 130 |  95 |  80 |  85 | 102 | Rough Skin (H), Sand Veil
+ Gholdengo    | Ghost/Steel   |  87 |  60 |  95 | 133 |  91 |  84 | Good as Gold
+
+== Q2  JOIN across 7 tables: full team sheet for "Rain Dance" ==
+ slot | species_name | ability_name |   item_name    | nature_name |  tera  | lvl |                       moves                       
+------+--------------+--------------+----------------+-------------+--------+-----+---------------------------------------------------
+    1 | Pelipper     | Drizzle      | Focus Sash     | Modest      | Water  |  50 | Hurricane / Weather Ball / Tailwind / Protect
+    2 | Kingdra      | Swift Swim   | Life Orb       | Modest      | Dragon |  50 | Muddy Water / Draco Meteor / Hurricane / Protect
+    3 | Amoonguss    | Regenerator  | Sitrus Berry   | Relaxed     | Water  |  50 | Spore / Rage Powder / Pollen Puff / Protect
+    4 | Incineroar   | Intimidate   | Safety Goggles | Careful     | Ghost  |  50 | Fake Out / Parting Shot / Flare Blitz / Knock Off
+    5 | Kyogre       | Drizzle      | Mystic Water   | Modest      | Water  |  50 | Water Spout / Origin Pulse / Ice Beam / Protect
+
+== Q3  LEFT JOIN + IS NULL (anti-join): trainers who have not built any team ==
+ account_username | system_access_role 
+------------------+--------------------
+ oak              | admin
+
+== Q4  SELF JOIN: species that evolve by trading (pre-evolution -> evolution) ==
+ from_species | to_species | evolution_method 
+--------------+------------+------------------
+ Graveler     | Golem      | trade
+ Haunter      | Gengar     | trade
+ Poliwhirl    | Politoed   | trade
+ Slowpoke     | Slowking   | trade
+ Scyther      | Scizor     | trade
+ Seadra       | Kingdra    | trade
+ Porygon      | Porygon2   | trade
+ Feebas       | Milotic    | trade
+
+== Q5  GROUP BY + HAVING: types with more than 60 species, by average stat total ==
+ type_name | species_count | avg_stat_total | best_total | pct_legendary 
+-----------+---------------+----------------+------------+---------------
+ Psychic   |            72 |          471.1 |        680 |          20.8
+ Fire      |            69 |          448.1 |        680 |           8.7
+ Flying    |            73 |          445.2 |        680 |          13.7
+ Water     |           109 |          421.0 |        680 |           2.8
+ Grass     |            99 |          413.5 |        600 |           4.0
+ Normal    |            77 |          410.0 |        720 |           2.6
+
+== Q6  GROUP BY + HAVING: team weaknesses shared by 2+ members of "Rain Dance" ==
+ attacking_type | weak | resist_or_immune |     weak_members     
+----------------+------+------------------+----------------------
+ Rock           |    2 |                0 | Pelipper, Incineroar
+ Electric       |    2 |                1 | Pelipper, Kyogre
+
+== Q7  Aggregates per generation (COUNT, AVG, MAX, FILTER) ==
+ gen | species | legendary_or_mythical | avg_total | fastest 
+-----+---------+-----------------------+-----------+---------
+   1 |      99 |                     5 |     420.5 |     150
+   2 |      82 |                     5 |     405.6 |     115
+   3 |      87 |                    10 |     415.2 |     150
+   4 |      85 |                    14 |     457.5 |     125
+   5 |      86 |                    11 |     434.9 |     116
+   6 |      47 |                     3 |     423.6 |     126
+   7 |      55 |                     6 |     421.4 |     124
+   8 |      72 |                    12 |     444.9 |     200
+   9 |     120 |                    12 |     457.4 |     136
+
+== Q8  Nested subquery: species faster than every member of "Rock Solid" ==
+ species_name | base_speed 
+--------------+------------
+ Regieleki    |        200
+ Deoxys       |        150
+ Electrode    |        150
+ Dragapult    |        142
+ Zamazenta    |        138
+ Zacian       |        138
+ Iron Bundle  |        136
+ Barraskewda  |        136
+ Koraidon     |        135
+ Miraidon     |        135
+
+== Q9  Correlated subquery: strongest species (by stat total) of each primary type ==
+ primary_type | species_name | base_stat_total 
+--------------+--------------+-----------------
+ Bug          | Slither Wing |             570
+ Dark         | Hydreigon    |             600
+ Dragon       | Baxcalibur   |             600
+ Dragon       | Dragapult    |             600
+ Dragon       | Dragonite    |             600
+ Dragon       | Garchomp     |             600
+ Dragon       | Goodra       |             600
+ Dragon       | Kommo-o      |             600
+ Dragon       | Salamence    |             600
+ Electric     | Raging Bolt  |             590
+ Fairy        | Iron Valiant |             590
+ Fighting     | Iron Hands   |             570
+ Fire         | Gouging Fire |             590
+ Flying       | Noivern      |             535
+ Ghost        | Flutter Mane |             570
+ Grass        | Iron Leaves  |             590
+ Ground       | Great Tusk   |             570
+ Ground       | Iron Treads  |             570
+ Ice          | Iron Bundle  |             570
+ Normal       | Slaking      |             670
+ Poison       | Muk          |             500
+ Psychic      | Espeon       |             525
+ Rock         | Tyranitar    |             600
+ Steel        | Archaludon   |             600
+ Steel        | Metagross    |             600
+ Water        | Walking Wake |             590
+
+== Q10 Correlated subquery in SELECT: fastest member of each team ==
+    team_name     | fastest_member 
+------------------+----------------
+ Rain Dance       | Kyogre
+ Work in Progress | Pelipper
+ Sun Room         | Flutter Mane
+ Rock Solid       | Garchomp
+ Baby Steps       | Gastly
+
+== Q11 Relational division (double NOT EXISTS): species that can learn ALL of Trick Room, Protect and Helping Hand ==
+ species_name 
+--------------
+ Solgaleo
+ Iron Valiant
+ Gallade
+ Azelf
+ Banette
+ Lunala
+ Mewtwo
+ Meowscarada
+ Mesprit
+ Wyrdeer
+
+== Q12 IN subquery: abilities held by exactly one species (signature abilities) ==
+  ability_name  | species_name 
+----------------+--------------
+ Air Lock       | Rayquaza
+ Anger Shell    | Klawf
+ Armor Tail     | Farigiraf
+ Bad Dreams     | Darkrai
+ Battery        | Charjabug
+ Beads of Ruin  | Chi-Yu
+ Chilling Neigh | Glastrier
+ Comatose       | Komala
+ Commander      | Tatsugiri
+ Costar         | Flamigo
+
+== Q13 Recursive CTE: full evolution family of Eevee (walk down the tree) ==
+ stage | species_name |       path        
+-------+--------------+-------------------
+     0 | Eevee        | Eevee
+     1 | Espeon       | Eevee -> Espeon
+     1 | Flareon      | Eevee -> Flareon
+     1 | Glaceon      | Eevee -> Glaceon
+     1 | Jolteon      | Eevee -> Jolteon
+     1 | Leafeon      | Eevee -> Leafeon
+     1 | Sylveon      | Eevee -> Sylveon
+     1 | Umbreon      | Eevee -> Umbreon
+     1 | Vaporeon     | Eevee -> Vaporeon
+
+== Q14 Recursive CTE: walk UP from Pikachu to its root, then back down the whole line ==
+ stage | species_name | evolution_method | evolution_minimum_level 
+-------+--------------+------------------+-------------------------
+     1 | Pichu        |                  |                        
+     2 | Pikachu      | level-up         |                        
+     3 | Raichu       | use-item         |                        
+
+== Q15 Recursive CTE + aggregate: longest evolution chains ==
+ chain_root | stages | species_in_family 
+------------+--------+-------------------
+ Applin     |      3 |                 5
+ Cosmog     |      3 |                 4
+ Oddish     |      3 |                 4
+ Poliwag    |      3 |                 4
+ Ralts      |      3 |                 4
+ Axew       |      3 |                 3
+ Azurill    |      3 |                 3
+ Bagon      |      3 |                 3
+
+== Q16 Multi-step CTE: offensive coverage of "Sun Room" (types its damaging moves hit super-effectively) ==
+ defending_type | best_multiplier |    coverage     
+----------------+-----------------+-----------------
+ Flying         |             1.0 | neutral
+ Bug            |             2.0 | super effective
+ Dark           |             2.0 | super effective
+ Dragon         |             2.0 | super effective
+ Electric       |             2.0 | super effective
+ Fairy          |             2.0 | super effective
+ Fighting       |             2.0 | super effective
+ Fire           |             2.0 | super effective
+ Ghost          |             2.0 | super effective
+ Grass          |             2.0 | super effective
+ Ground         |             2.0 | super effective
+ Ice            |             2.0 | super effective
+ Normal         |             2.0 | super effective
+ Poison         |             2.0 | super effective
+ Psychic        |             2.0 | super effective
+ Rock           |             2.0 | super effective
+ Steel          |             2.0 | super effective
+ Water          |             2.0 | super effective
+
+== Q17 Window function: speed ranking within each team (RANK, running share) ==
+ team_name  | species_name | base_speed | speed_rank | pct_of_team_speed 
+------------+--------------+------------+------------+-------------------
+ Rain Dance | Kyogre       |         90 |          1 |              27.3
+ Rain Dance | Kingdra      |         85 |          2 |              25.8
+ Rain Dance | Pelipper     |         65 |          3 |              19.7
+ Rain Dance | Incineroar   |         60 |          4 |              18.2
+ Rain Dance | Amoonguss    |         30 |          5 |               9.1
+ Rock Solid | Garchomp     |        102 |          1 |              32.5
+ Rock Solid | Gholdengo    |         84 |          2 |              26.8
+ Rock Solid | Corviknight  |         67 |          3 |              21.3
+ Rock Solid | Tyranitar    |         61 |          4 |              19.4
+ Sun Room   | Koraidon     |        135 |          1 |              36.5
+ Sun Room   | Flutter Mane |        135 |          1 |              36.5
+ Sun Room   | Venusaur     |         80 |          3 |              21.6
+ Sun Room   | Torkoal      |         20 |          4 |               5.4
+
+== Q18 Window function: top 3 strongest moves of each type (ROW_NUMBER) ==
+ type_name |   move_name   | base_power | damage_category 
+-----------+---------------+------------+-----------------
+ Dragon    | Dragon Energy |        150 | special
+ Dragon    | Roar of Time  |        150 | special
+ Dragon    | Draco Meteor  |        130 | special
+ Fire      | Blast Burn    |        150 | special
+ Fire      | Eruption      |        150 | special
+ Fire      | Blue Flare    |        130 | special
+ Water     | Hydro Cannon  |        150 | special
+ Water     | Water Spout   |        150 | special
+ Water     | Wave Crash    |        120 | physical
+
+== Q19 Set operations: moves Garchomp can learn that Tyranitar cannot (EXCEPT), and shared ones (INTERSECT) ==
+     which     | moves 
+---------------+-------
+ only Garchomp |    15
+ both          |    47
+
+== Q20 View: team overview ==
+    team_name     | owner_username |   format_name    | team_status | member_count | legendary_members |                      roster                      
+------------------+----------------+------------------+-------------+--------------+-------------------+--------------------------------------------------
+ Rain Dance       | ash            | VGC Regulation G | validated   |            5 |                 1 | Pelipper, Kingdra, Amoonguss, Incineroar, Kyogre
+ Work in Progress | ash            | VGC Regulation G | draft       |            1 |                 0 | Pelipper
+ Sun Room         | misty          | VGC Regulation G | validated   |            4 |                 1 | Torkoal, Venusaur, Flutter Mane, Koraidon
+ Rock Solid       | brock          | Singles OU       | validated   |            4 |                 0 | Garchomp, Tyranitar, Corviknight, Gholdengo
+ Baby Steps       | brock          | Little Cup       | draft       |            3 |                 0 | Pichu, Gastly, Mudbray
+
+== Q21 Function: final level-100 stats of Garchomp in "Rock Solid" (Jolly, 252 Atk / 252 Spe) ==
+    stat_name    | base_value | effort_value | individual_value | nature_effect | final_value 
+-----------------+------------+--------------+------------------+---------------+-------------
+ hit_points      |        108 |            4 |               31 |               |         358
+ attack          |        130 |          252 |               31 |               |         359
+ defense         |         95 |            0 |               31 |               |         226
+ special_attack  |         80 |            0 |               31 | -             |         176
+ special_defense |         85 |            0 |               31 |               |         206
+ speed           |        102 |          252 |               31 | +             |         333
+
+== Q22 Function: weakness report for "Sun Room" ==
+ attacking_type | weak_members | resistant_members | immune_members |         members_weak         
+----------------+--------------+-------------------+----------------+------------------------------
+ Flying         |            2 |                 0 |              0 | Koraidon (2x), Venusaur (2x)
+ Psychic        |            2 |                 0 |              0 | Koraidon (2x), Venusaur (2x)
+ Ice            |            2 |                 1 |              0 | Koraidon (2x), Venusaur (2x)
+ Dragon         |            1 |                 0 |              1 | Koraidon (2x)
+ Ghost          |            1 |                 0 |              0 | Flutter Mane (2x)
+ Ground         |            1 |                 0 |              0 | Torkoal (2x)
+ Rock           |            1 |                 1 |              0 | Torkoal (2x)
+ Steel          |            1 |                 1 |              0 | Flutter Mane (2x)
+ Fairy          |            1 |                 2 |              0 | Koraidon (4x)
+ Fire           |            1 |                 2 |              0 | Venusaur (2x)
+ Water          |            1 |                 2 |              0 | Torkoal (2x)
+
+== Q23 Materialized view: species usage in VGC Regulation G ==
+ species_name | teams_using | usage_percent 
+--------------+-------------+---------------
+ Amoonguss    |           1 |          50.0
+ Flutter Mane |           1 |          50.0
+ Incineroar   |           1 |          50.0
+ Kingdra      |           1 |          50.0
+ Koraidon     |           1 |          50.0
+ Kyogre       |           1 |          50.0
+ Pelipper     |           1 |          50.0
+ Torkoal      |           1 |          50.0
+ Venusaur     |           1 |          50.0
+
+== Q24 Full-text search: moves matching "restores HP" ranked by relevance ==
+   move_name    |    rank    |                              description                               
+----------------+------------+------------------------------------------------------------------------
+ Floral Healing | 0.83099496 | The user restores the target's HP by up to half its max HP. More HP is
+ Swallow        | 0.72578377 | The power stored using the move Stockpile is absorbed by the user to r
+ Moonlight      | 0.57540655 | The user restores its own HP. The amount of HP regained varies with th
+ Morning Sun    | 0.57540655 | The user restores its own HP. The amount of HP regained varies with th
+ Synthesis      | 0.57540655 | The user restores its own HP. The amount of HP regained varies with th
+ Draining Kiss  |  0.5194302 | The user steals the target's HP with a kiss. The user's HP is restored
+ Wish           |  0.5194302 | One turn after this move is used, the user's or its replacement's HP i
+ Shore Up       | 0.50989014 | The user restores its own HP by up to half its max HP. It regains more
+
+== Q25 Trigram fuzzy search: misspelled "charzard" and "garchomb" ==
+ species_name | similarity 
+--------------+------------
+ Garchomp     |       0.64
+ Charizard    |       0.58
+
+== Q26 INSERT / UPDATE / DELETE with SAVEPOINT and procedures, then ROLLBACK ==
+BEGIN
+ team_identification_number |    team_name    | team_status 
+----------------------------+-----------------+-------------
+                         11 | Trick Room Test | draft
+
+INSERT 0 1
+cloned into team 12
+UPDATE 1
+SAVEPOINT
+DELETE 1
+     team_name     | member_count |                  roster                  
+-------------------+--------------+------------------------------------------
+ Rain Dance (copy) |            4 | Pelipper, Kingdra, Amoonguss, Incineroar
+
+ROLLBACK
+CALL
+     team_name     | owner_username | team_status | member_count |                      roster                      
+-------------------+----------------+-------------+--------------+--------------------------------------------------
+ Rain Dance        | ash            | validated   |            5 | Pelipper, Kingdra, Amoonguss, Incineroar, Kyogre
+ Trick Room Test   | misty          | draft       |            0 | 
+ Rain Dance (copy) | misty          | validated   |            5 | Pelipper, Kingdra, Amoonguss, Incineroar, Kyogre
+
+ROLLBACK
