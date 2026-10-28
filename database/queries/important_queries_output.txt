@@ -296,14 +296,26 @@
  Garchomp     |       0.64
  Charizard    |       0.58
 
-== Q26 INSERT / UPDATE / DELETE with SAVEPOINT and procedures, then ROLLBACK ==
+== Q26 Vector similarity (pgvector, <=> cosine distance): teams most like "Rain Dance" by team_profile_vector ==
+    team_name     | owner | team_status | similarity 
+------------------+-------+-------------+------------
+ Sun Room         | misty | validated   |      0.840
+ Work in Progress | ash   | draft       |      0.817
+ Rock Solid       | brock | validated   |      0.776
+ Baby Steps       | brock | draft       |      0.713
+
+== Q27 Semantic search (pgvector): moves closest in meaning to Recover (empty until seed.py --embed has run) ==
+ move_name | similarity | description 
+-----------+------------+-------------
+
+== Q28 INSERT / UPDATE / DELETE with SAVEPOINT and procedures, then ROLLBACK ==
 BEGIN
  team_identification_number |    team_name    | team_status 
 ----------------------------+-----------------+-------------
-                         11 | Trick Room Test | draft
+                          8 | Trick Room Test | draft
 
 INSERT 0 1
-cloned into team 12
+cloned into team 9
 UPDATE 1
 SAVEPOINT
 DELETE 1

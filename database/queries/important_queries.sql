@@ -79,7 +79,7 @@ ORDER BY avg_stat_total DESC;
 SELECT d.attacking_type,
        count(*) FILTER (WHERE d.damage_multiplier > 1)  AS weak,
        count(*) FILTER (WHERE d.damage_multiplier < 1)  AS resist_or_immune,
-       string_agg(d.species_name, ', ') FILTER (WHERE d.damage_multiplier > 1) AS weak_members
+       string_agg(d.species_name, ', ' ORDER BY m.team_slot_number) FILTER (WHERE d.damage_multiplier > 1) AS weak_members
 FROM competitive_team ct
 JOIN individual_team_member m  ON m.belongs_to_team_id = ct.team_identification_number
 JOIN v_species_type_defense d  ON d.species_id = m.base_species_id
@@ -323,12 +323,27 @@ FROM pokemon_species
 WHERE species_name % 'garchomb'
 ORDER BY similarity DESC;
 
+\echo '== Q26 Vector similarity (pgvector, <=> cosine distance): teams most like "Rain Dance" by team_profile_vector =='
+SELECT t.team_name, tr.account_username AS owner, t.team_status,
+       round((1 - (t.team_profile_vector <=> r.team_profile_vector))::NUMERIC, 3) AS similarity
+FROM competitive_team t
+JOIN trainer tr ON tr.trainer_identification_number = t.owned_by_trainer_id
+CROSS JOIN (SELECT team_profile_vector FROM competitive_team WHERE team_name = 'Rain Dance') r
+WHERE t.team_name <> 'Rain Dance'
+ORDER BY t.team_profile_vector <=> r.team_profile_vector;
+
+\echo '== Q27 Semantic search (pgvector): moves closest in meaning to Recover (empty until seed.py --embed has run) =='
+SELECT s.move_name, s.similarity, left(m.move_effect_description, 60) AS description
+FROM fn_search_moves_semantic((SELECT description_embedding FROM combat_move WHERE move_name = 'Recover'), 6) s
+JOIN combat_move m ON m.move_identification_number = s.move_id
+ORDER BY s.similarity DESC;
+
 
 -- =====================================================================
 -- H. DML inside a TRANSACTION (rolled back, so the demo data is unchanged)
 -- =====================================================================
 
-\echo '== Q26 INSERT / UPDATE / DELETE with SAVEPOINT and procedures, then ROLLBACK =='
+\echo '== Q28 INSERT / UPDATE / DELETE with SAVEPOINT and procedures, then ROLLBACK =='
 BEGIN;
 
 -- INSERT ... RETURNING: misty starts a new team

@@ -301,6 +301,69 @@ def full_text_search(conn, ids):
     check({"Recover", "Roost"} <= found, f"found {sorted(found)[:10]}")
 
 
+# ---------------------------------------------------------------- vector search
+
+def team_vector(conn, team_id):
+    text = scalar(conn, "SELECT team_profile_vector::text FROM competitive_team WHERE team_identification_number = %s", team_id)
+    return None if text is None else [float(x) for x in text.strip("[]").split(",")]
+
+
+def embedding(*entries):
+    """A 384-dim vector literal, zero except for the given (index, value) entries."""
+    v = [0.0] * 384
+    for i, x in entries:
+        v[i] = x
+    return "[" + ",".join(map(str, v)) + "]"
+
+
+@test("Vector")
+def team_vectors_backfilled(conn, ids):
+    """Every demo team has a 42-dim team_profile_vector matching fn_team_profile_vector"""
+    rows = conn.execute("""SELECT team_name, vector_dims(team_profile_vector),
+                                  team_profile_vector = fn_team_profile_vector(team_identification_number)
+                           FROM competitive_team""").fetchall()
+    check(rows and all(dims == 42 and same for _, dims, same in rows), str(rows))
+
+@test("Vector")
+def team_vector_follows_members(conn, ids):
+    """Adding a member recomputes team_profile_vector; an empty team's vector is NULL"""
+    team = ids.team("Work in Progress")
+    dragon = scalar(conn, "SELECT elemental_type_identification_number FROM elemental_type WHERE type_name = 'Dragon'") - 1
+    before = team_vector(conn, team)
+    conn.execute(INSERT_MEMBER, member_row(ids))  # Garchomp joins Pelipper
+    after = team_vector(conn, team)
+    check((before[dragon], after[dragon]) == (0.0, 0.5), f"Dragon share {before[dragon]} -> {after[dragon]}")
+    conn.execute("DELETE FROM individual_team_member WHERE belongs_to_team_id = %s", (team,))
+    check(team_vector(conn, team) is None, "empty team still has a vector")
+
+@test("Vector")
+def competitor_cannot_write_team_vector(conn, ids):
+    """Competitor can't set team_profile_vector on their own team (only the trigger maintains it)"""
+    team = ids.team("Sun Room")
+    as_role(conn, "pokedex_competitor", ids.trainer("misty"))
+    expect_error(conn, "UPDATE competitive_team SET team_profile_vector = NULL WHERE team_identification_number = %s",
+                 (team,), "permission denied")
+
+@test("Vector")
+def similar_teams_respects_rls(conn, ids):
+    """fn_similar_teams returns only teams the caller can read; guests can't call it"""
+    team = ids.team("Sun Room")
+    as_role(conn, "pokedex_competitor", ids.trainer("misty"))
+    found = {r[0] for r in conn.execute("SELECT team_name FROM fn_similar_teams(%s, 10)", (team,))}
+    check(found == {"Rain Dance", "Rock Solid"}, f"found {found}")
+    as_role(conn, "pokedex_guest")
+    expect_error(conn, "SELECT * FROM fn_similar_teams(%s)", (team,), "permission denied")
+
+@test("Vector")
+def semantic_move_search(conn, ids):
+    """fn_search_moves_semantic ranks by cosine similarity and skips moves without embeddings"""
+    conn.execute("UPDATE combat_move SET description_embedding = NULL")
+    for name, vec in [("Recover", embedding((0, 1))), ("Roost", embedding((0, 0.9), (1, 0.1))), ("Tackle", embedding((1, 1)))]:
+        conn.execute("UPDATE combat_move SET description_embedding = %s::vector WHERE move_name = %s", (vec, name))
+    found = [r[0] for r in conn.execute("SELECT move_name FROM fn_search_moves_semantic(%s::vector)", (embedding((0, 1)),))]
+    check(found == ["Recover", "Roost", "Tackle"], f"found {found}")
+
+
 # ---------------------------------------------------------------- role-based access control
 
 @test("Security")

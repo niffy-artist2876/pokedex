@@ -25,10 +25,10 @@ database/
     007_role_based_access.sql  database roles, grants, row-level security
   demo_data.sql              demo trainers, formats and teams
   queries/
-    important_queries.sql    26 labelled queries (joins, subqueries, CTEs, windows, ...)
+    important_queries.sql    28 labelled queries (joins, subqueries, CTEs, windows, vectors, ...)
     important_queries_output.txt
   tests/
-    test_database.py         41 tests for constraints, triggers, procedures, security
+    test_database.py         46 tests for constraints, triggers, procedures, security, vectors
     test_results.md
 ```
 
