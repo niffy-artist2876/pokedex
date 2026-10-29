@@ -1,0 +1,23 @@
+# PostgreSQL 18 with pgvector, for running the project without installing
+# pgvector into a local PostgreSQL. Reads DOCKER_DB_PASSWORD from .env.
+#   docker compose up -d
+# then set DATABASE_URL=postgresql://postgres:<DOCKER_DB_PASSWORD>@localhost:5433/pokedex
+services:
+  db:
+    image: pgvector/pgvector:pg18
+    container_name: pokedex-db
+    environment:
+      POSTGRES_PASSWORD: ${DOCKER_DB_PASSWORD:?set DOCKER_DB_PASSWORD in .env}
+      POSTGRES_DB: pokedex
+    ports:
+      - "5433:5432"   # 5433 so it can run next to a locally installed PostgreSQL
+    volumes:
+      - pokedex-pgdata:/var/lib/postgresql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pokedex"]
+      interval: 5s
+      retries: 20
+
+volumes:
+  pokedex-pgdata:

@@ -1,13 +1,15 @@
 # Pokedex & Competitive Team Management
 
-A PostgreSQL database for browsing Pokémon reference data and building
-competitive teams that are validated against tournament formats. See
+A PostgreSQL + pgvector database and Next.js web app for browsing Pokémon
+reference data, searching moves and abilities by meaning, and building
+competitive teams that the database validates against tournament formats. See
 `er-diagram.png` for the entity-relationship model.
 
 ## Layout
 
 ```
-.env.example                 copy to .env; database settings (never committed)
+.env.example                 copy to .env; settings for the database, scripts and web app (never committed)
+docker-compose.yml           PostgreSQL 18 + pgvector on port 5433
 requirements.txt             Python dependencies
 er-diagram.png
 dataset/
@@ -23,27 +25,39 @@ database/
     005_views.sql            views + a materialized usage-statistics view
     006_functions_...sql     functions, procedures, team-status triggers
     007_role_based_access.sql  database roles, grants, row-level security
+    008_vector_search.sql    pgvector: description embeddings, team profile vectors, similarity search
+    009_app_support.sql      session lookup, admin description/embedding edits, ability search, evolution line
   demo_data.sql              demo trainers, formats and teams
   queries/
     important_queries.sql    28 labelled queries (joins, subqueries, CTEs, windows, vectors, ...)
     important_queries_output.txt
   tests/
-    test_database.py         46 tests for constraints, triggers, procedures, security, vectors
+    test_database.py         52 tests for constraints, triggers, procedures, security, vectors
     test_results.md
+web/                         Next.js 16 app (App Router, server actions)
+  src/lib/db.ts              connection pool; runs every request as the signed-in user's database role
+  src/lib/session.ts         signed session cookie; role re-read from the database each request
+  src/lib/embeddings.ts      same MiniLM model as seed.py, so search text and stored vectors match
+  src/app/                   pages and server actions
 ```
 
 ## Setup
 
-Needs PostgreSQL 15+ (tested on 18) and Python 3.10+.
+Needs Docker (or PostgreSQL 15+ with the pgvector extension), Python 3.10+ and Node 20+.
 
 ```bash
+copy .env.example .env                  # fill in every value (see comments in the file)
+docker compose up -d                    # PostgreSQL 18 + pgvector on port 5433
 pip install -r requirements.txt
-createdb -U postgres pokedex
-copy .env.example .env        # then fill in DATABASE_URL and APP_DB_PASSWORD
 python database/setup_db.py --seed --demo
+python dataset/seed.py --embed          # move/ability embeddings (downloads the MiniLM model once)
 python database/tests/test_database.py
-psql -U postgres -d pokedex -f database/queries/important_queries.sql
+cd web && npm install && npm run dev    # http://localhost:3000
 ```
+
+If the model download fails asking for `hf_xet`, set `HF_HUB_DISABLE_XET=1` before
+`--embed`. The queries file runs with
+`docker exec -i pokedex-db psql -U postgres -d pokedex < database/queries/important_queries.sql`.
 
 `setup_db.py` records applied files in `schema_migration`, so it is safe to
 re-run; new migrations are applied, old ones skipped. `--reset` drops every
@@ -82,9 +96,29 @@ The backend connects as `pokedex_app` and, per request inside a transaction, run
 `SELECT set_config('pokedex.trainer_id', '<id>', true)`. Password hashes and
 e-mails are hidden from competitors by column privileges.
 
-## Not yet included
+## Vector search
 
-- The vector-search part (pgvector embeddings and similarity search). The ER diagram
-  already shows `description_embedding` and `team_profile_vector`;
-  `seed.py --embed` exits with a message until they're added.
-- The Next.js web application.
+- **What is embedded:** each move's and ability's `"Name: description"` text, as a
+  384-dimension vector (`all-MiniLM-L6-v2`, mean pooling, normalized). Each team also
+  gets a 42-dimension profile (type shares, average damage taken per type, average
+  base stats) kept current by a trigger.
+- **Storage and retrieval:** `vector` columns with HNSW indexes; cosine distance
+  (`<=>`) in `fn_search_moves_semantic`, `fn_search_abilities_semantic` and `fn_similar_teams`.
+- **Create / read / update / delete:** `seed.py --embed` and the admin "embed missing"
+  button create vectors; search, "similar moves" and "similar teams" read them; the
+  admin description editor re-embeds edited text; admins can remove a vector, and a
+  trigger clears a vector whose description changed without a new one.
+
+## Web app
+
+| Page | Who | Database features used |
+|---|---|---|
+| Pokédex, species pages | everyone | views, trigram fuzzy search, recursive evolution function, type-matchup view |
+| Moves & Abilities search | everyone | full-text search (`ts_rank`, `ts_headline`), semantic search (pgvector) |
+| My Teams, team builder | competitors | RLS, triggers and constraints (errors shown on the form), `sp_validate_team`, stat and weakness functions, coverage CTE, similar teams |
+| Community | competitors | RLS shows only validated teams of others; `sp_clone_team` |
+| Usage Stats | everyone | materialized view; admins refresh it |
+| Admin: formats, bans, trainers, descriptions & embeddings | admins | admin-only grants, ban trigger, column privileges, vector update/delete |
+
+Every request runs in one transaction as `pokedex_guest`, `pokedex_competitor` or
+`pokedex_admin`, so the database, not the app, decides what each user can see and change.

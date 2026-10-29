@@ -357,11 +357,50 @@ def similar_teams_respects_rls(conn, ids):
 @test("Vector")
 def semantic_move_search(conn, ids):
     """fn_search_moves_semantic ranks by cosine similarity and skips moves without embeddings"""
+    # Exact search: the HNSW index is approximate, and the hundreds of vectors just
+    # replaced in this transaction can crowd a far-away match out of its candidates.
+    conn.execute("SET LOCAL enable_indexscan = off")
     conn.execute("UPDATE combat_move SET description_embedding = NULL")
     for name, vec in [("Recover", embedding((0, 1))), ("Roost", embedding((0, 0.9), (1, 0.1))), ("Tackle", embedding((1, 1)))]:
         conn.execute("UPDATE combat_move SET description_embedding = %s::vector WHERE move_name = %s", (vec, name))
     found = [r[0] for r in conn.execute("SELECT move_name FROM fn_search_moves_semantic(%s::vector)", (embedding((0, 1)),))]
     check(found == ["Recover", "Roost", "Tackle"], f"found {found}")
+
+@test("Vector")
+def semantic_ability_search(conn, ids):
+    """fn_search_abilities_semantic ranks abilities by cosine similarity"""
+    conn.execute("SET LOCAL enable_indexscan = off")  # exact search, as above
+    conn.execute("UPDATE special_ability SET description_embedding = NULL")
+    for name, vec in [("Drizzle", embedding((2, 1))), ("Drought", embedding((2, 0.5), (3, 0.5))), ("Levitate", embedding((3, 1)))]:
+        conn.execute("UPDATE special_ability SET description_embedding = %s::vector WHERE ability_name = %s", (vec, name))
+    found = [r[0] for r in conn.execute("SELECT ability_name FROM fn_search_abilities_semantic(%s::vector)", (embedding((2, 1)),))]
+    check(found == ["Drizzle", "Drought", "Levitate"], f"found {found}")
+
+@test("Vector")
+def admin_updates_description_and_vector(conn, ids):
+    """Admin can update a description together with its new embedding (vector update)"""
+    as_role(conn, "pokedex_admin", ids.trainer("oak"))
+    conn.execute("""UPDATE combat_move SET move_effect_description = 'Heals.', description_embedding = %s::vector
+                    WHERE move_name = 'Recover'""", (embedding((5, 1)),))
+    check(scalar(conn, "SELECT description_embedding = %s::vector FROM combat_move WHERE move_name = 'Recover'",
+                 embedding((5, 1))), "new vector not stored")
+
+@test("Vector")
+def description_edit_clears_stale_vector(conn, ids):
+    """Editing a description without a new embedding clears the stale vector (trigger); admin can delete vectors"""
+    as_role(conn, "pokedex_admin", ids.trainer("oak"))
+    conn.execute("UPDATE combat_move SET description_embedding = %s::vector WHERE move_name = 'Recover'", (embedding((0, 1)),))
+    conn.execute("UPDATE combat_move SET move_effect_description = 'Heals a lot.' WHERE move_name = 'Recover'")
+    check(scalar(conn, "SELECT description_embedding IS NULL FROM combat_move WHERE move_name = 'Recover'"), "stale vector kept")
+    conn.execute("UPDATE special_ability SET description_embedding = NULL WHERE ability_name = 'Drizzle'")
+    check(scalar(conn, "SELECT description_embedding IS NULL FROM special_ability WHERE ability_name = 'Drizzle'"), "not deleted")
+
+@test("Vector")
+def competitor_cannot_edit_descriptions(conn, ids):
+    """Competitors can't change descriptions or embeddings (column privileges)"""
+    as_role(conn, "pokedex_competitor", ids.trainer("misty"))
+    expect_error(conn, "UPDATE combat_move SET move_effect_description = 'x' WHERE move_name = 'Recover'", match="permission denied")
+    expect_error(conn, "UPDATE special_ability SET description_embedding = NULL", match="permission denied")
 
 
 # ---------------------------------------------------------------- role-based access control
@@ -459,6 +498,20 @@ def admin_powers(conn, ids):
     check(scalar(conn, "SELECT count(*) FROM competitive_team") == 5, "admin does not see all teams")
     check(conn.execute("DELETE FROM competitive_team WHERE team_name = 'Baby Steps'").rowcount == 1, "admin delete failed")
     conn.execute("CALL sp_refresh_usage_statistics()")
+
+@test("Security")
+def guest_session_lookup(conn, ids):
+    """fn_get_trainer_session lets the backend re-read a trainer's current role as guest"""
+    ash = ids.trainer("ash")
+    as_role(conn, "pokedex_guest")
+    row = conn.execute("SELECT account_username, access_role FROM fn_get_trainer_session(%s)", (ash,)).fetchone()
+    check(row == ("ash", "competitor"), str(row))
+
+@test("Function")
+def evolution_line(conn, ids):
+    """fn_species_evolution_line walks up and down the family (Pikachu -> Pichu, Pikachu, Raichu)"""
+    rows = conn.execute("SELECT stage, species_name FROM fn_species_evolution_line(%s)", (ids.species("Pikachu"),)).fetchall()
+    check(rows == [(1, "Pichu"), (2, "Pikachu"), (3, "Raichu")], str(rows))
 
 @test("Security")
 def app_login_role_has_no_rights(conn, ids):
