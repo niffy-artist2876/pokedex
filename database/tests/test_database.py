@@ -92,6 +92,17 @@ INSERT_MEMBER = """INSERT INTO individual_team_member
     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
 
 
+def reset_demo_draft(conn, ids):
+    """Put 'Work in Progress' back to its demo state (a draft with only Pelipper in slot 1).
+
+    The web app can add members to it and validate it, which breaks tests that rely on
+    it being a 1-member draft. Removing a member sends the team back to draft (trigger).
+    Runs inside the test's rolled-back transaction, so the saved team is untouched.
+    """
+    conn.execute("DELETE FROM individual_team_member WHERE belongs_to_team_id = %s AND team_slot_number <> 1",
+                 (ids.team("Work in Progress"),))
+
+
 def member_row(ids, team="Work in Progress", slot=2, species="Garchomp", ability="Rough Skin",
                item=None, nature="Jolly", level=50, atk_ev=0, spe_ev=0, spe_iv=31):
     return (ids.team(team), slot, ids.species(species), ids.ability(ability),
@@ -319,9 +330,12 @@ def embedding(*entries):
 @test("Vector")
 def team_vectors_backfilled(conn, ids):
     """Every demo team has a 42-dim team_profile_vector matching fn_team_profile_vector"""
+    # Teams with members only: an empty team's vector is NULL (see team_vector_follows_members)
     rows = conn.execute("""SELECT team_name, vector_dims(team_profile_vector),
                                   team_profile_vector = fn_team_profile_vector(team_identification_number)
-                           FROM competitive_team""").fetchall()
+                           FROM competitive_team t
+                           WHERE EXISTS (SELECT 1 FROM individual_team_member m
+                                         WHERE m.belongs_to_team_id = t.team_identification_number)""").fetchall()
     check(rows and all(dims == 42 and same for _, dims, same in rows), str(rows))
 
 @test("Vector")
@@ -353,6 +367,15 @@ def similar_teams_respects_rls(conn, ids):
     check(found == {"Rain Dance", "Rock Solid"}, f"found {found}")
     as_role(conn, "pokedex_guest")
     expect_error(conn, "SELECT * FROM fn_similar_teams(%s)", (team,), "permission denied")
+
+@test("Vector")
+def similar_teams_empty_team(conn, ids):
+    """fn_similar_teams returns nothing for a team with no members (NULL vector)"""
+    team = ids.team("Work in Progress")
+    conn.execute("DELETE FROM individual_team_member WHERE belongs_to_team_id = %s", (team,))
+    as_role(conn, "pokedex_competitor", ids.trainer("ash"))
+    rows = conn.execute("SELECT team_name, similarity FROM fn_similar_teams(%s, 10)", (team,)).fetchall()
+    check(rows == [], f"returned {rows}")
 
 @test("Vector")
 def semantic_move_search(conn, ids):
@@ -458,10 +481,11 @@ def competitor_cannot_edit_others(conn, ids):
 @test("Security")
 def competitor_cannot_read_secrets(conn, ids):
     """Competitor can't read password hashes or e-mails (column privileges)"""
+    total = scalar(conn, "SELECT count(*) FROM trainer")  # 4 demo trainers, plus the .env admin if seeded
     as_role(conn, "pokedex_competitor", ids.trainer("misty"))
     expect_error(conn, "SELECT encrypted_password_hash FROM trainer", match="permission denied")
     expect_error(conn, "SELECT email_address FROM trainer", match="permission denied")
-    check(scalar(conn, "SELECT count(account_username) FROM trainer") == 4, "public columns not readable")
+    check(scalar(conn, "SELECT count(account_username) FROM trainer") == total, "public columns not readable")
 
 @test("Security")
 def competitor_cannot_admin(conn, ids):
@@ -493,9 +517,10 @@ def competitor_full_flow(conn, ids):
 def admin_powers(conn, ids):
     """Admin creates formats, sees every team (including drafts) and can delete any team"""
     oak = ids.trainer("oak")
+    total = scalar(conn, "SELECT count(*) FROM competitive_team")  # demo teams plus any made in the web app
     as_role(conn, "pokedex_admin", oak)
     conn.execute("INSERT INTO battle_format (format_name, level_cap, managed_by_trainer_id) VALUES ('Admin Cup', 50, %s)", (oak,))
-    check(scalar(conn, "SELECT count(*) FROM competitive_team") == 5, "admin does not see all teams")
+    check(scalar(conn, "SELECT count(*) FROM competitive_team") == total, "admin does not see all teams")
     check(conn.execute("DELETE FROM competitive_team WHERE team_name = 'Baby Steps'").rowcount == 1, "admin delete failed")
     conn.execute("CALL sp_refresh_usage_statistics()")
 
@@ -535,6 +560,7 @@ def main():
         for category, description, fn in TESTS:
             try:
                 with conn.transaction(force_rollback=True):
+                    reset_demo_draft(conn, ids)
                     fn(conn, ids)
                 results.append((category, description, "PASS", ""))
             except Exception as e:  # noqa: BLE001 - report every failure, keep going

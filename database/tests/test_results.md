@@ -1,6 +1,6 @@
 # Database test results
 
-Run 2026-10-29 21:07 with `python database/tests/test_database.py`: **52/52 passed**.
+Run 2026-11-10 21:04 with `python database/tests/test_database.py`: **53/53 passed**.
 
 | # | Area | Test | Result |
 |---|---|---|---|
@@ -38,21 +38,22 @@ Run 2026-10-29 21:07 with `python database/tests/test_database.py`: **52/52 pass
 | 32 | Vector | Adding a member recomputes team_profile_vector; an empty team's vector is NULL | PASS |
 | 33 | Vector | Competitor can't set team_profile_vector on their own team (only the trigger maintains it) | PASS |
 | 34 | Vector | fn_similar_teams returns only teams the caller can read; guests can't call it | PASS |
-| 35 | Vector | fn_search_moves_semantic ranks by cosine similarity and skips moves without embeddings | PASS |
-| 36 | Vector | fn_search_abilities_semantic ranks abilities by cosine similarity | PASS |
-| 37 | Vector | Admin can update a description together with its new embedding (vector update) | PASS |
-| 38 | Vector | Editing a description without a new embedding clears the stale vector (trigger); admin can delete vectors | PASS |
-| 39 | Vector | Competitors can't change descriptions or embeddings (column privileges) | PASS |
-| 40 | Security | Guest can browse the Pokédex | PASS |
-| 41 | Security | Guest cannot read teams or trainers | PASS |
-| 42 | Security | Guest sign-up through fn_register_trainer always creates a competitor | PASS |
-| 43 | Security | Competitor sees own teams + others' validated teams, not others' drafts (RLS, also through views) | PASS |
-| 44 | Security | Competitor can't create a team owned by someone else | PASS |
-| 45 | Security | Competitor can't rename, delete or add members to another trainer's team | PASS |
-| 46 | Security | Competitor can't read password hashes or e-mails (column privileges) | PASS |
-| 47 | Security | Competitor can't create formats, ban species or validate others' teams | PASS |
-| 48 | Security | Competitor creates a team, adds a member and move, and validates it, all under RLS | PASS |
-| 49 | Security | Admin creates formats, sees every team (including drafts) and can delete any team | PASS |
-| 50 | Security | fn_get_trainer_session lets the backend re-read a trainer's current role as guest | PASS |
-| 51 | Function | fn_species_evolution_line walks up and down the family (Pikachu -> Pichu, Pikachu, Raichu) | PASS |
-| 52 | Security | The pokedex_app login role can do nothing until it switches role (NOINHERIT) | PASS |
+| 35 | Vector | fn_similar_teams returns nothing for a team with no members (NULL vector) | PASS |
+| 36 | Vector | fn_search_moves_semantic ranks by cosine similarity and skips moves without embeddings | PASS |
+| 37 | Vector | fn_search_abilities_semantic ranks abilities by cosine similarity | PASS |
+| 38 | Vector | Admin can update a description together with its new embedding (vector update) | PASS |
+| 39 | Vector | Editing a description without a new embedding clears the stale vector (trigger); admin can delete vectors | PASS |
+| 40 | Vector | Competitors can't change descriptions or embeddings (column privileges) | PASS |
+| 41 | Security | Guest can browse the Pokédex | PASS |
+| 42 | Security | Guest cannot read teams or trainers | PASS |
+| 43 | Security | Guest sign-up through fn_register_trainer always creates a competitor | PASS |
+| 44 | Security | Competitor sees own teams + others' validated teams, not others' drafts (RLS, also through views) | PASS |
+| 45 | Security | Competitor can't create a team owned by someone else | PASS |
+| 46 | Security | Competitor can't rename, delete or add members to another trainer's team | PASS |
+| 47 | Security | Competitor can't read password hashes or e-mails (column privileges) | PASS |
+| 48 | Security | Competitor can't create formats, ban species or validate others' teams | PASS |
+| 49 | Security | Competitor creates a team, adds a member and move, and validates it, all under RLS | PASS |
+| 50 | Security | Admin creates formats, sees every team (including drafts) and can delete any team | PASS |
+| 51 | Security | fn_get_trainer_session lets the backend re-read a trainer's current role as guest | PASS |
+| 52 | Function | fn_species_evolution_line walks up and down the family (Pikachu -> Pichu, Pikachu, Raichu) | PASS |
+| 53 | Security | The pokedex_app login role can do nothing until it switches role (NOINHERIT) | PASS |

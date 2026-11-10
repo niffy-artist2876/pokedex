@@ -27,12 +27,13 @@ database/
     007_role_based_access.sql  database roles, grants, row-level security
     008_vector_search.sql    pgvector: description embeddings, team profile vectors, similarity search
     009_app_support.sql      session lookup, admin description/embedding edits, ability search, evolution line
+    010_similar_teams_empty.sql  fn_similar_teams returns nothing for a team without members
   demo_data.sql              demo trainers, formats and teams
   queries/
     important_queries.sql    28 labelled queries (joins, subqueries, CTEs, windows, vectors, ...)
     important_queries_output.txt
   tests/
-    test_database.py         52 tests for constraints, triggers, procedures, security, vectors
+    test_database.py         53 tests for constraints, triggers, procedures, security, vectors
     test_results.md
 web/                         Next.js 16 app (App Router, server actions)
   src/lib/db.ts              connection pool; runs every request as the signed-in user's database role
