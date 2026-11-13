@@ -28,6 +28,7 @@ database/
     008_vector_search.sql    pgvector: description embeddings, team profile vectors, similarity search
     009_app_support.sql      session lookup, admin description/embedding edits, ability search, evolution line
     010_similar_teams_empty.sql  fn_similar_teams returns nothing for a team without members
+    011_revoke_hosted_api_roles.sql  removes Supabase's anon/authenticated access (no-op elsewhere)
   demo_data.sql              demo trainers, formats and teams
   queries/
     important_queries.sql    28 labelled queries (joins, subqueries, CTEs, windows, vectors, ...)
@@ -67,6 +68,50 @@ table first (all data is lost). Seeding defaults to Scarlet/Violet; run
 
 Demo accounts (password `Pokedex@123`): `oak` (admin), `ash`, `misty`, `brock`
 (competitors).
+
+## Sharing one database between several copies of the site
+
+Every copy of the web app reads and writes whatever `APP_DATABASE_URL` points to,
+and no page caches query results, so copies that share one database see each
+other's changes on the next page load. To run the site on two machines:
+
+1. Create a PostgreSQL 16+ database on a host that offers the `vector`, `pg_trgm`
+   and `pgcrypto` extensions (Neon does; its owner role can create the
+   `pokedex_*` roles that migration 007 needs). Copy its **direct** connection string.
+2. On one machine, set `DATABASE_URL` to that string (with `?sslmode=require`),
+   then run setup, seeding and embedding once:
+   ```bash
+   python database/setup_db.py --seed --demo
+   python dataset/seed.py --embed
+   ```
+3. On every machine, set `APP_DATABASE_URL` to the same host as
+   `pokedex_app:<APP_DB_PASSWORD>`, ending in `?sslmode=verify-full`, plus a
+   `SESSION_SECRET`. Then run `cd web && npm install && npm run dev`. The other
+   machines don't need Docker or Python.
+
+### On Supabase
+
+- Copy connection strings from the project's **Connect** button. The direct
+  connection is IPv6-only, so use the poolers. In pooler strings the user is
+  `<role>.<project-ref>` and the database is `postgres`:
+  - `DATABASE_URL`: the **session** pooler (port 5432), user `postgres.<ref>`,
+    ending in `?sslmode=require`. The Python scripts need session mode.
+  - `APP_DATABASE_URL`: the **transaction** pooler (port 6543), user
+    `pokedex_app.<ref>`. Transaction mode is fine because the web app runs every
+    request in one transaction with `SET LOCAL`. For SSL, download the CA
+    certificate (Database settings → SSL configuration) and end the URL with
+    `?sslmode=verify-full&sslrootcert=C:/full/path/prod-ca-2021.crt`.
+- URL-encode special characters in passwords (`@` → `%40`, `#` → `%23`).
+- Supabase gives its API roles `anon` and `authenticated` full access to every
+  object in `public`, which would bypass the `pokedex_*` roles. Migration 011
+  revokes that. Also turn off the Data API, or remove `public` from its exposed
+  schemas, in the project settings. Keep the service-role key private.
+
+`database/tests/test_database.py` rolls back every test, so it is safe to run
+against the shared database. If a test fails with "permission denied to set
+role", the host's owner role created the `pokedex_*` roles without the right
+to switch into them. Run `GRANT pokedex_app, pokedex_guest, pokedex_competitor,
+pokedex_admin TO <owner role> WITH SET TRUE;` once. The web app is unaffected.
 
 ## Rules enforced in the database
 
