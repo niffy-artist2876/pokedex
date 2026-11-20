@@ -2,46 +2,11 @@
 
 A PostgreSQL + pgvector database and Next.js web app for browsing Pokémon
 reference data, searching moves and abilities by meaning, and building
-competitive teams that the database validates against tournament formats. See
-`er-diagram.png` for the entity-relationship model.
+competitive teams that the database validates against tournament formats. 
 
-## Layout
-
-```
-.env.example                 copy to .env; settings for the database, scripts and web app (never committed)
-docker-compose.yml           PostgreSQL 18 + pgvector on port 5433
-requirements.txt             Python dependencies
-er-diagram.png
-dataset/
-  seed.py                    loads reference data from PokeAPI CSVs (one transaction)
-  .pokeapi_cache/            the CSVs, so seeding works offline
-database/
-  setup_db.py                applies migrations in order; --seed, --demo, --reset
-  migrations/
-    001_base_schema.sql      CREATE: 16 tables, keys, CHECKs, indexes, rule triggers
-    002_alter_...sql         ALTER: evolutions, format limits, trainer input validation
-    003_search_indexes.sql   full-text search (tsvector + GIN) and trigram fuzzy search
-    004_drop_...sql          DROP: indexes made redundant by UNIQUE constraints
-    005_views.sql            views + a materialized usage-statistics view
-    006_functions_...sql     functions, procedures, team-status triggers
-    007_role_based_access.sql  database roles, grants, row-level security
-    008_vector_search.sql    pgvector: description embeddings, team profile vectors, similarity search
-    009_app_support.sql      session lookup, admin description/embedding edits, ability search, evolution line
-    010_similar_teams_empty.sql  fn_similar_teams returns nothing for a team without members
-    011_revoke_hosted_api_roles.sql  removes Supabase's anon/authenticated access (no-op elsewhere)
-  demo_data.sql              demo trainers, formats and teams
-  queries/
-    important_queries.sql    28 labelled queries (joins, subqueries, CTEs, windows, vectors, ...)
-    important_queries_output.txt
-  tests/
-    test_database.py         53 tests for constraints, triggers, procedures, security, vectors
-    test_results.md
-web/                         Next.js 16 app (App Router, server actions)
-  src/lib/db.ts              connection pool; runs every request as the signed-in user's database role
-  src/lib/session.ts         signed session cookie; role re-read from the database each request
-  src/lib/embeddings.ts      same MiniLM model as seed.py, so search text and stored vectors match
-  src/app/                   pages and server actions
-```
+Done by:<br>
+Shaurya Singh - PES1UG24CS437<br>
+Shishir Hegde - PES1UG24CS438
 
 ## Setup
 
@@ -89,30 +54,6 @@ other's changes on the next page load. To run the site on two machines:
    `SESSION_SECRET`. Then run `cd web && npm install && npm run dev`. The other
    machines don't need Docker or Python.
 
-### On Supabase
-
-- Copy connection strings from the project's **Connect** button. The direct
-  connection is IPv6-only, so use the poolers. In pooler strings the user is
-  `<role>.<project-ref>` and the database is `postgres`:
-  - `DATABASE_URL`: the **session** pooler (port 5432), user `postgres.<ref>`,
-    ending in `?sslmode=require`. The Python scripts need session mode.
-  - `APP_DATABASE_URL`: the **transaction** pooler (port 6543), user
-    `pokedex_app.<ref>`. Transaction mode is fine because the web app runs every
-    request in one transaction with `SET LOCAL`. For SSL, download the CA
-    certificate (Database settings → SSL configuration) and end the URL with
-    `?sslmode=verify-full&sslrootcert=C:/full/path/prod-ca-2021.crt`.
-- URL-encode special characters in passwords (`@` → `%40`, `#` → `%23`).
-- Supabase gives its API roles `anon` and `authenticated` full access to every
-  object in `public`, which would bypass the `pokedex_*` roles. Migration 011
-  revokes that. Also turn off the Data API, or remove `public` from its exposed
-  schemas, in the project settings. Keep the service-role key private.
-
-`database/tests/test_database.py` rolls back every test, so it is safe to run
-against the shared database. If a test fails with "permission denied to set
-role", the host's owner role created the `pokedex_*` roles without the right
-to switch into them. Run `GRANT pokedex_app, pokedex_guest, pokedex_competitor,
-pokedex_admin TO <owner role> WITH SET TRUE;` once. The web app is unaffected.
-
 ## Rules enforced in the database
 
 | Rule | How |
@@ -144,15 +85,15 @@ e-mails are hidden from competitors by column privileges.
 
 ## Vector search
 
-- **What is embedded:** each move's and ability's `"Name: description"` text, as a
+- Each move's and ability's `"Name: description"` text, as a
   384-dimension vector (`all-MiniLM-L6-v2`, mean pooling, normalized). Each team also
   gets a 42-dimension profile (type shares, average damage taken per type, average
   base stats) kept current by a trigger.
-- **Storage and retrieval:** `vector` columns with HNSW indexes; cosine distance
+- Vector columns are indexed with HNSW indexes and cosine distance is used as the distance metric
   (`<=>`) in `fn_search_moves_semantic`, `fn_search_abilities_semantic` and `fn_similar_teams`.
-- **Create / read / update / delete:** `seed.py --embed` and the admin "embed missing"
-  button create vectors; search, "similar moves" and "similar teams" read them; the
-  admin description editor re-embeds edited text; admins can remove a vector, and a
+- `seed.py --embed` and the admin "embed missing"
+  button create vectors. For the search feature, "similar moves" and "similar teams" are returned. The
+  admin can re-embed edited text and can remove a vector. A
   trigger clears a vector whose description changed without a new one.
 
 ## Web app
